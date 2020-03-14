@@ -1,0 +1,430 @@
+//HW8 by Wanxiang Xie
+//SU Net ID: wxie15  SUID: 408358088
+#include <iostream>
+#include <fstream>
+#include <vector>
+#include <math.h>
+#include <string>
+#include <list>
+#include <set>
+using namespace std;
+
+
+
+class card{
+public:
+	int value;
+	char pattern;
+	card() {}
+	card(int a, char b) { value = a; pattern = b; }
+};
+
+ostream& operator<<(ostream& str, const card& c);
+
+class deck {
+public:
+	
+	list<card> cards;
+	list<card> pool;
+
+	deck() {
+		for (int i = 1; i <= 13; i++) {
+			cards.push_back(card(i,'B'));
+		}
+		for (int i = 1; i <= 13; i++) {
+			cards.push_back(card(i, 'H'));
+		}
+		for (int i = 1; i <= 13; i++) {
+			cards.push_back(card(i, 'C'));
+		}
+		for (int i = 1; i <= 13; i++) {
+			cards.push_back(card(i, 'S'));
+		}
+	}
+
+};
+
+class player {
+public:
+
+	list<card> Hand;
+	list<card> table;
+	player() {}
+
+};
+
+string show_card(const card c) {
+	string s, s1;
+
+	switch (c.value)
+	{
+	case 1:
+		s1 = "A";
+		break;
+	case 2:
+		s1 = "2";
+		break;
+	case 3:
+		s1 = "3";
+		break;
+	case 4:
+		s1 = "4";
+		break;
+	case 5:
+		s1 = "5";
+		break;
+	case 6:
+		s1 = "6";
+		break;
+	case 7:
+		s1 = "7";
+		break;
+	case 8:
+		s1 = "8";
+		break;
+	case 9:
+		s1 = "9";
+		break;
+	case 10:
+		s1 = "10";
+		break;
+	case 11:
+		s1 = "J";
+		break;
+	case 12:
+		s1 = "Q";
+		break;
+	case 13:
+		s1 = "K";
+		break;
+	default:
+		break;
+	}
+
+	s = s1 + c.pattern;
+
+	return s;
+}
+
+string show_cards(const list<card> cards) {
+	string s = "";
+	for (auto i : cards) {
+		s += show_card(i) + " ";
+	}
+
+	return s;
+
+}
+
+void shuffle(list<card>& cards) {
+
+	vector<card> v_cards;
+
+	for (auto i : cards) {
+		v_cards.push_back(i);
+	}
+
+
+	int times = (int)sqrt(v_cards.size());
+	for (int j = 0; j < times; j++)
+	{
+		vector<card>temp = v_cards;
+		for (size_t i = 0; i < v_cards.size() / 2; i++) {
+			v_cards[i * 2] = temp[i];
+			v_cards[i * 2 + 1] = temp[i + v_cards.size() / 2];
+		}
+	}
+	card temp = v_cards[0];
+	v_cards[0] = v_cards[v_cards.size() - 1];
+	v_cards[v_cards.size() - 1] = temp;
+
+	cards.clear();
+
+	for (auto i : v_cards) {
+		cards.push_back(i);
+	}
+
+	
+}
+
+
+
+ostream& operator<<(ostream& str, const card& c) {
+	if (c.value == 1)
+		str << 'A';
+	else if (c.value == 11)
+		str << 'J';
+	else if (c.value == 12)
+		str << 'Q';
+	else if (c.value == 13)
+		str << 'K';
+	else
+		str << c.value;
+
+	str << c.pattern;
+
+	return str;
+}
+
+
+int main() {
+
+	cout << "Please enter numbers of players(at least 2):" << endl;
+	int k = 4, dealer = 2;
+
+
+	cin >> k;
+	if (k < 2) return 0;
+
+	cout << "Please choose the dealer form 1 to " << k << ":" << endl;
+
+	cin >> dealer;
+	if (dealer <1 || dealer >k) return 0;
+	cout << "The dealer is player " << dealer << ", Let's start the game!" << endl;
+
+
+	deck d1;
+
+	ofstream fout("data1.txt");
+	fout << "\n\n************** initial deck of cards before shuffle **************\n" << endl;
+	fout << show_cards(d1.cards) << endl;
+	fout << endl;
+	shuffle(d1.cards);
+	fout << "******************after shuffle**************\n" << endl;
+	fout << show_cards(d1.cards) << endl;
+	fout << "\n******************after cards are dealt**************\n" << endl;
+
+
+	vector<player> players;
+	for (int i = 0; i < k; i++) {
+		player p;
+		players.push_back(p);
+	}
+
+	////////////first deal
+	for (int i = 1; i <= k; i++)
+	{
+		if (i > dealer) {
+			//cout << i << " ";
+			players[i - 1].Hand.push_front(d1.cards.front());
+			d1.cards.pop_front();
+		}
+	}
+	
+	while (d1.cards.empty() == false) {
+		for (int i = 1; i <= k; i++)
+		{
+			if (d1.cards.empty()) break;
+			//cout << i << " ";
+			players[i - 1].Hand.push_front(d1.cards.front());
+			d1.cards.pop_front();
+		}
+	}
+
+	for (int i = 0; i < k; i++) {
+		fout << "cards for player " << i + 1 << endl;
+		fout << show_cards(players[i].Hand) << endl;
+
+	}
+	fout << endl;
+
+	int hand_num = 0;
+	set<int> tieIndex;
+
+	while (true) {
+
+		/// show hand
+		for (int i = 0; i < k; i++) {
+			fout << "Hand " << i + 1 << endl;
+			fout << show_cards(players[i].Hand) << endl;
+			fout << endl;
+			//players[i].table.clear();
+		}
+
+		//show table
+		for (int i = 0; i < k; i++) {
+			fout << "table " << i + 1 << endl;
+			if (players[i].Hand.empty() == false) {
+				players[i].table.push_front(players[i].Hand.front());
+				players[i].Hand.pop_front();
+			}
+
+			fout << show_cards(players[i].table) << endl;
+			fout << endl;
+		}
+
+		//first battle 
+
+		int min = 9999; //!
+		bool tie = false;
+		tieIndex.clear();
+		//intialize min and tieIndex
+		for (int i = 0; i < k; i++) {
+			if (players[i].table.empty() == false) {
+				min = players[i].table.front().value;
+				tieIndex.insert(i);
+				break;
+			}
+		}
+
+		for (int i = 0; i < k; i++) {
+			if (players[i].table.empty() == false) {
+				if (players[i].table.front().value < min) {
+					tie = false;
+					tieIndex.clear();
+					min = players[i].table.front().value;
+					tieIndex.insert(i);
+				}
+				else if (players[i].table.front().value == min) {
+					tie = true;
+
+					tieIndex.insert(i);
+				}
+
+			}
+		}
+		for (int i = 0; i < k; i++) {
+			if (players[i].Hand.empty() == false) {
+				hand_num++;
+			}
+		}
+		//cout << "hand_num:" << hand_num << endl;
+
+		if (tieIndex.size() == 1) { // gets all cards for winner
+			for (int i = 0; i < k; i++) {
+				
+				if (players[i].table.empty() == false) {
+					//hand_num++;
+					for (auto i : players[i].table)
+						players[*tieIndex.begin()].Hand.push_front(i);
+				}
+				players[i].table.clear();
+			}
+			shuffle(players[*tieIndex.begin()].Hand);
+
+		}
+		else { //continue battle with 
+			tie = false;
+			cout << "continue battle between ...." << endl;
+			for (auto i : tieIndex)
+				cout << i << " " << endl;
+			//hand_num = 1;
+
+			//cout << "hand_num:"<<hand_num << endl;
+			int hand_num2 = 0;
+
+			while (true) {
+				
+				for (auto i : tieIndex) {
+					if (players[i].Hand.empty() == false)
+					{
+						players[i].table.push_front(players[i].Hand.front());
+						players[i].Hand.pop_front();
+					}
+					if (players[i].Hand.empty() == false) {
+						players[i].table.push_front(players[i].Hand.front());
+						players[i].Hand.pop_front();
+					}
+					
+				}
+				//////show hand
+				for (int i = 0; i < k; i++) {
+					fout << "Hand " << i + 1 << endl;
+					fout << show_cards(players[i].Hand) << endl;
+					fout << endl;
+					//players[i].table.clear();
+				}
+				///show table
+				for (int i = 0; i < k; i++) {
+					fout << "table " << i + 1 << endl;
+					fout << show_cards(players[i].table) << endl;
+					fout << endl;
+				}
+				//battle
+
+				int min = 9999; //!
+				set<int> tieIndex2;
+				bool tie = false;
+				//intialize min and tieIndex
+				for (auto i : tieIndex) {
+					if (players[i].table.empty() == false) {
+						min = players[i].table.front().value;
+						tieIndex2.insert(i);
+						break;
+					}
+				}
+
+				for (auto i : tieIndex) {
+					if (players[i].table.empty() == false) {
+						if (players[i].table.front().value < min) {
+							tie = false;
+							tieIndex2.clear();
+							min = players[i].table.front().value;
+							tieIndex2.insert(i);
+						}
+						else if (players[i].table.front().value == min) {
+							tie = true;
+							tieIndex2.insert(i);
+						}
+
+					}
+				}
+
+				if (tieIndex2.size() == 1) { // gets all cards for winner
+
+					for (int i = 0; i < k; i++) {
+						if (players[i].table.empty() == false) {
+							//hand_num++;
+							for (auto i : players[i].table)
+								players[*tieIndex2.begin()].Hand.push_front(i);
+						}
+						players[i].table.clear();
+
+					}
+					shuffle(players[*tieIndex2.begin()].Hand);
+
+				}
+				else
+				{
+					cout << "The second continue battle between ...." << endl;
+					for (auto i : tieIndex2)
+						cout << i << " " << endl;
+					hand_num2 = 1;
+				}
+
+				if (hand_num2 <= 1)
+					break;
+				else
+					hand_num2 = 0;
+			}
+		}
+
+		if (hand_num <= 1) {
+			fout << "Game Over!!  The winner is player " << *tieIndex.begin() + 1 << endl;
+			cout << endl;
+			cout << endl;
+			for (int i = 0; i < k; i++) {
+				fout << "Final hand " << i + 1 << endl;
+				fout << show_cards(players[i].Hand) << endl;
+				fout << endl;
+			}
+			break;
+		}
+		else {
+			for (int i = 0; i < k; i++) {
+				if (players[i].Hand.size() < 5) {
+
+					for (auto i : players[i].Hand) {
+						players[*tieIndex.begin()].Hand.push_front(i);
+					}
+					players[i].Hand.clear();
+				}
+			}
+			hand_num = 0;
+		}
+		
+	}
+	fout.close();
+	return 0;
+
+}
