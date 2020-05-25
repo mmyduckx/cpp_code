@@ -1,0 +1,672 @@
+//CSE691HW3 by Wanxiang Xie
+//SU Net ID: wxie15  SUID: 408358088
+
+
+#include <iostream>
+#include <thread>
+#include <chrono>
+#include <mutex>
+#include <condition_variable>
+#include <ctime>
+#include <vector>
+#include <fstream>
+#include <algorithm>
+
+using namespace std;
+
+int moveTime(int A, int B, int C, int D);
+int assemblyTime(int A, int B, int C, int D);
+
+class Combination {
+public:
+    Combination(int a, int b, int c, int d) : A(a), B(b), C(c), D(d) {}
+    void show() {
+        cout << "(" << A << "," << B << "," << C << "," << D << ")" << endl;
+    }
+    int makeTime() {
+        int time = 50 * A + 70 * B + 90 * C + 110 * D; //ms
+        return time;
+    }
+
+    int A;
+    int B;
+    int C;
+    int D;
+};
+
+class Buffer {
+public:
+    Buffer(int a, int b, int c, int d) : A(a), B(b), C(c), D(d) {}
+    void showBufferState() {
+        cout << "(" << A << "," << B << "," << C << "," << D << ")" << endl;
+    }
+
+    int space_A() { return MAX_A - A; }
+    int space_B() { return MAX_B - B; }
+    int space_C() { return MAX_C - C; }
+    int space_D() { return MAX_D - D; }
+
+    int A = 0;
+    int B = 0;
+    int C = 0;
+    int D = 0;
+
+    const int MAX_A = 6;
+    const int MAX_B = 5;
+    const int MAX_C = 4;
+    const int MAX_D = 3;
+};
+
+class PartWorker {
+public:
+    PartWorker(int i) :id(i) {};
+    vector<int> generate();
+    bool loadToBuffer(Combination& c1, chrono::high_resolution_clock::time_point start_wait_time) const;
+    void discard(Combination& c1) {
+        this_thread::sleep_for(chrono::microseconds(moveTime(c1.A, c1.B, c1.C, c1.D)));
+        c1.A = 0;
+        c1.B = 0;
+        c1.C = 0;
+        c1.D = 0;
+    }
+    int iteration = 0;
+    int id;
+};
+
+class ProductWorker {
+public:
+    ProductWorker(int i) :id(i) {};
+    vector<int> generate();
+    bool assemblyFromBuffer(Combination& c2, chrono::high_resolution_clock::time_point start_wait_time) const;
+    void discard(Combination& original_order, Combination& left_order) {
+        int a = original_order.A - left_order.A;
+        int b = original_order.B - left_order.B;
+        int c = original_order.C - left_order.C;
+        int d = original_order.D - left_order.D;
+        this_thread::sleep_for(chrono::microseconds(moveTime(a, b, c, d)));
+    }
+    int iteration = 0;
+    int id;
+};
+
+Buffer buffer(0, 0, 0, 0);
+//mutex m1;
+//condition_variable cv1;
+//condition_variable cv2;
+int totalCompleted = 0;
+chrono::high_resolution_clock::time_point prog_start_time;
+bool threadStartFlag = false;
+
+
+
+//Re-do HW2 with a centralized locking system
+class plant {
+private:
+    mutex m1;
+    condition_variable cv1;
+    condition_variable cv2;
+
+public:
+    void doPartWork(int i) {
+        PartWorker partWorker(i);
+
+        while (partWorker.iteration < 5) {
+            partWorker.iteration++;
+
+            //produce 4 pieces of part of any type combination.....
+            vector<int> comb = partWorker.generate();
+            Combination c1(comb[0], comb[1], comb[2], comb[3]);   //load order
+            this_thread::sleep_for(chrono::milliseconds(c1.makeTime()));
+
+            //attempt to load the produced parts to a buffer area, using unique_lock
+            unique_lock<mutex> ulock1(m1);
+            if (threadStartFlag == false) { //set first run time
+                prog_start_time = chrono::high_resolution_clock::now();
+                threadStartFlag = true;
+            }
+
+            if (buffer.space_A() >= c1.A && buffer.space_B() >= c1.B && buffer.space_C() >= c1.C &&
+                buffer.space_D() >= c1.D) { //no need to wait,just complete the load order
+
+                ofstream f_out("log.txt", ios::app);
+
+                auto now_time = chrono::high_resolution_clock::now();
+                chrono::duration<double, std::micro> current = now_time - prog_start_time;
+                //            cout << "\nCurrent Time: "<< current.count()<< "us" << endl;
+                //            cout << "Part Worker ID:" << i << endl;
+                //            cout << "Iteration: " << partWorker.iteration << endl;
+                //            cout << "Status:" << "New Load Order" << endl;
+                //            cout << "Buffer State:";
+                //            buffer.showBufferState();
+                //            cout << "Load Order:";
+                //            c1.show();
+
+                f_out << "\nCurrent Time: " << current.count() << "us" << endl;
+                f_out << "Part Worker ID:" << i << endl;
+                f_out << "Iteration: " << partWorker.iteration << endl;
+                f_out << "Status:" << "New Load Order" << endl;
+                f_out << "Buffer State:";
+                f_out << "(" << buffer.A << "," << buffer.B << "," << buffer.C << "," << buffer.D << ")" << endl;
+                f_out << "Load Order:";
+                f_out << "(" << c1.A << "," << c1.B << "," << c1.C << "," << c1.D << ")" << endl;
+
+                this_thread::sleep_for(chrono::microseconds(moveTime(c1.A, c1.B, c1.C, c1.D)));
+                buffer.A += c1.A;
+                buffer.B += c1.B;
+                buffer.C += c1.C;
+                buffer.D += c1.D;
+                c1.A = 0;
+                c1.B = 0;
+                c1.C = 0;
+                c1.D = 0;
+
+                //            cout << "Updated Buffer State:";
+                //            buffer.showBufferState();
+                //            cout << "Updated Load Order:";
+                //            c1.show();
+
+                f_out << "Updated Buffer State:";
+                f_out << "(" << buffer.A << "," << buffer.B << "," << buffer.C << "," << buffer.D << ")" << endl;
+                f_out << "Updated Load Order:";
+                f_out << "(" << c1.A << "," << c1.B << "," << c1.C << "," << c1.D << ")" << endl;
+                f_out.close();
+
+                cout << "PartWorker id: " << partWorker.id << " Iteration: " << partWorker.iteration << " -> Load order finished!" << endl;
+
+            }
+            else {
+                ofstream f_out("log.txt", ios::app);
+
+                auto now_time = chrono::high_resolution_clock::now();
+                chrono::duration<double, std::micro> current = now_time - prog_start_time;
+                //            cout << "\nCurrent Time: "<< current.count()<< "us" << endl;
+                //            cout << "Part Worker ID:" << i << endl;
+                //            cout << "Iteration: " << partWorker.iteration << endl;
+                //            cout << "Status:" << "New Load Order" << endl;
+                //            cout << "Buffer State:";
+                //            buffer.showBufferState();
+                //            cout << "Load Order:";
+                //            c1.show();
+
+                f_out << "\nCurrent Time: " << current.count() << "us" << endl;
+                f_out << "Part Worker ID:" << i << endl;
+                f_out << "Iteration: " << partWorker.iteration << endl;
+                f_out << "Status:" << "New Load Order" << endl;
+                f_out << "Buffer State:";
+                f_out << "(" << buffer.A << "," << buffer.B << "," << buffer.C << "," << buffer.D << ")" << endl;
+                f_out << "Load Order:";
+                f_out << "(" << c1.A << "," << c1.B << "," << c1.C << "," << c1.D << ")" << endl;
+
+                this_thread::sleep_for(chrono::microseconds(moveTime(min(c1.A, buffer.space_A()), min(c1.B, buffer.space_B()), min(c1.C, buffer.space_C()), min(c1.D, buffer.space_D()))));
+                if (buffer.space_A() < c1.A) {
+                    c1.A = c1.A - buffer.space_A();
+                    buffer.A = buffer.MAX_A;
+                }
+                else {
+                    buffer.A += c1.A;
+                    c1.A = 0;
+                }
+                if (buffer.space_B() < c1.B) {
+                    c1.B = c1.B - buffer.space_B();
+                    buffer.B = buffer.MAX_B;
+                }
+                else {
+                    buffer.B += c1.B;
+                    c1.B = 0;
+                }
+                if (buffer.space_C() < c1.C) {
+                    c1.C = c1.C - buffer.space_C();
+                    buffer.C = buffer.MAX_C;
+                }
+                else {
+                    buffer.C += c1.C;
+                    c1.C = 0;
+                }
+                if (buffer.space_D() < c1.D) {
+                    c1.D = c1.D - buffer.space_D();
+                    buffer.D = buffer.MAX_D;
+                }
+                else {
+                    buffer.D += c1.D;
+                    c1.D = 0;
+                }
+
+                //            cout << "Updated Buffer State:";
+                //            buffer.showBufferState();
+                //            cout << "Updated Load Order:";
+                //            c1.show();
+
+                f_out << "Updated Buffer State:";
+                f_out << "(" << buffer.A << "," << buffer.B << "," << buffer.C << "," << buffer.D << ")" << endl;
+                f_out << "Updated Load Order:";
+                f_out << "(" << c1.A << "," << c1.B << "," << c1.C << "," << c1.D << ")" << endl;
+                f_out.close();
+
+                cv2.notify_all();
+
+                auto start_wait_time = chrono::high_resolution_clock::now();
+                if (cv1.wait_for(ulock1, chrono::microseconds(3000), [&]() {return partWorker.loadToBuffer(c1, start_wait_time); })) {
+                    //finish
+                    cout << "PartWorker id: " << partWorker.id << " Iteration: " << partWorker.iteration << " -> Load order finished!" << endl;
+                }
+                else {
+                    //time out
+                    cout << "PartWorker id: " << partWorker.id << " Iteration: " << partWorker.iteration << " -> Time is out!" << endl;
+                    ulock1.unlock();
+                    partWorker.discard(c1);
+                }
+            }
+        }
+
+    }
+
+    void doProductWork(int i) {
+        ProductWorker productWorker(i);
+
+        while (productWorker.iteration < 5) {
+            productWorker.iteration++;
+
+            vector<int> comb = productWorker.generate();
+            Combination c2(comb[0], comb[1], comb[2], comb[3]);   //pickup order
+
+            Combination pickupOrder(c2.A, c2.B, c2.C, c2.D);
+            int assembly_time = assemblyTime(c2.A, c2.B, c2.C, c2.D);
+
+            auto start_wait_buffer = chrono::high_resolution_clock::now();
+            // access to the shared resource, using unique_lock
+
+            unique_lock<mutex> ulock1(m1);
+
+            cv2.wait_for(ulock1, chrono::milliseconds(1000)); //ensure buffer have been filled by some PartWorkers
+            auto end_wait_buffer = chrono::high_resolution_clock::now();
+            chrono::duration<double, std::micro> consume_time = end_wait_buffer - start_wait_buffer;
+            cout << "\nProduct worker: " << productWorker.id << " has been Waiting " << consume_time.count() << "us to fill buffer area by PartWorker" << endl;
+
+            if (threadStartFlag == false) {
+                prog_start_time = chrono::high_resolution_clock::now();
+                threadStartFlag = true;
+            }
+
+            if (buffer.A >= c2.A && buffer.B >= c2.B && buffer.C >= c2.C && buffer.D >= c2.D) { //no need to wait,just move combs in the picker
+                ofstream f_out("log.txt", ios::app);
+
+                auto now_time = chrono::high_resolution_clock::now();
+                chrono::duration<double, std::micro> current = now_time - prog_start_time;
+                //            cout << "\nCurrent Time: "<< current.count()<< "us" << endl;
+                //            cout << "Product Worker ID: " << productWorker.id << endl;
+                //            cout << "Iteration: " << productWorker.iteration << endl;
+                //            cout << "Status:" << "New Pickup Order" << endl;
+                //            cout << "Accumulated Wait Time: 0 us" << endl;
+                //            cout << "Buffer State:";
+                //            buffer.showBufferState();
+                //            cout << "Pickup Order:";
+                //            c2.show();
+                f_out << "\nCurrent Time: " << current.count() << "us" << endl;
+                f_out << "Product Worker ID:" << productWorker.id << endl;
+                f_out << "Iteration: " << productWorker.iteration << endl;
+                f_out << "Status:" << "New Pickup Order" << endl;
+                f_out << "Accumulated Wait Time: 0 us" << endl;
+                f_out << "Buffer State:";
+                f_out << "(" << buffer.A << "," << buffer.B << "," << buffer.C << "," << buffer.D << ")" << endl;
+                f_out << "Pickup Order:";
+                f_out << "(" << c2.A << "," << c2.B << "," << c2.C << "," << c2.D << ")" << endl;
+                this_thread::sleep_for(chrono::microseconds(moveTime(c2.A, c2.B, c2.C, c2.D)));
+                Combination c3(c2.A, c2.B, c2.C, c2.D);
+
+                buffer.A -= c2.A;
+                buffer.B -= c2.B;
+                buffer.C -= c2.C;
+                buffer.D -= c2.D;
+                c2.A = 0;
+                c2.B = 0;
+                c2.C = 0;
+                c2.D = 0;
+                //            cout << "Updated Buffer State:";
+                //            buffer.showBufferState();
+                //            cout << "Updated Load Order:";
+                //            c2.show();
+
+                totalCompleted++;
+                //            cout << "Total Completed Products: "<< totalCompleted << endl;
+
+                f_out << "Total Completed Products: " << totalCompleted << endl;
+                f_out.close();
+
+                ulock1.unlock();
+                //assembled into products
+                this_thread::sleep_for(chrono::milliseconds(assembly_time));
+            }
+            else {
+                ofstream f_out("log.txt", ios::app);
+
+                auto now_time = chrono::high_resolution_clock::now();
+                chrono::duration<double, std::micro> current = now_time - prog_start_time;
+                //            cout << "\nCurrent Time: "<< current.count()<< "us" << endl;
+                //            cout << "Product Worker ID:" << productWorker.id << endl;
+                //            cout << "Iteration: " << productWorker.iteration << endl;
+                //            cout << "Status:" << "New Pickup Order" << endl;
+                //            cout << "Accumulated Wait Time: 0 us" << endl;
+                //            cout << "Buffer State:";
+                //            buffer.showBufferState();
+                //            cout << "Pickup Order:";
+                //            c2.show();
+                f_out << "\nCurrent Time: " << current.count() << "us" << endl;
+                f_out << "Product Worker ID:" << productWorker.id << endl;
+                f_out << "Iteration: " << productWorker.iteration << endl;
+                f_out << "Status:" << "New Pickup Order" << endl;
+                f_out << "Accumulated Wait Time: 0 us" << endl;
+                f_out << "Buffer State:";
+                f_out << "(" << buffer.A << "," << buffer.B << "," << buffer.C << "," << buffer.D << ")" << endl;
+                f_out << "Pickup Order:";
+                f_out << "(" << c2.A << "," << c2.B << "," << c2.C << "," << c2.D << ")" << endl;
+
+                this_thread::sleep_for(chrono::microseconds(moveTime(min(c2.A, buffer.A), min(c2.B, buffer.B), min(c2.C, buffer.C), min(c2.D, buffer.D))));
+                if (buffer.A >= c2.A) {
+                    buffer.A -= c2.A;
+                    c2.A = 0;
+                }
+                else {
+                    c2.A -= buffer.A;
+                    buffer.A = 0;
+                }
+                if (buffer.B >= c2.B) {
+                    buffer.B -= c2.B;
+                    c2.B = 0;
+                }
+                else {
+                    c2.B -= buffer.B;
+                    buffer.B = 0;
+                }
+                if (buffer.C >= c2.C) {
+                    buffer.C -= c2.C;
+                    c2.C = 0;
+                }
+                else {
+                    c2.C -= buffer.C;
+                    buffer.C = 0;
+                }
+                if (buffer.D >= c2.D) {
+                    buffer.D -= c2.D;
+                    c2.D = 0;
+                }
+                else {
+                    c2.D -= buffer.D;
+                    buffer.D = 0;
+                }
+
+                //            cout << "Updated Buffer State:";
+                //            buffer.showBufferState();
+                //            cout << "Updated Pickup Order:";
+                //            c2.show();
+                //            cout << "Total Completed Products: "<< totalCompleted << endl;
+
+                f_out << "Updated Buffer State:";
+                f_out << "(" << buffer.A << "," << buffer.B << "," << buffer.C << "," << buffer.D << ")" << endl;
+                f_out << "Updated Pickup Order:";
+                f_out << "(" << c2.A << "," << c2.B << "," << c2.C << "," << c2.D << ")" << endl;
+                f_out << "Total Completed Products: " << totalCompleted << endl;
+                f_out.close();
+
+                cv1.notify_all();
+                auto start_wait_time = chrono::high_resolution_clock::now();
+
+                if (cv2.wait_for(ulock1, chrono::microseconds(6000), [&]() {return productWorker.assemblyFromBuffer(c2, start_wait_time); })) {
+                    cout << "Pickup order is finished in this iteration!" << endl;
+                    ulock1.unlock();
+                    //assembled into products
+                    this_thread::sleep_for(chrono::milliseconds(assembly_time));
+                }
+                else {
+                    //time out
+                    cout << "ProductWorker id: " << productWorker.id << " Iteration: " << productWorker.iteration << " -> Time is out!" << endl;
+                    ulock1.unlock();
+                    //discard order already pickup
+                    productWorker.discard(pickupOrder, c2);
+                }
+            }
+        }
+
+    }
+
+};
+
+
+int moveTime(int A, int B, int C, int D) {
+    int time = 20 * A + 30 * B + 40 * C + 50 * D;  //us
+    return time;
+}
+
+int assemblyTime(int A, int B, int C, int D) {
+    int time = 80 * A + 100 * B + 120 * C + 140 * D;  //us
+    return time;
+}
+
+vector<int> PartWorker::generate() { //produce 4 pieces of part of any type combination, such as (3,0,1,0), (2,0,1,1), (1,1,1,1)
+    auto seed = time(0);
+    vector<int> v1;
+    for (int i = 0; i < 4; ++i) {
+        srand(seed + id);
+        seed = seed * 7;
+        int val = rand() % 4;
+        v1.push_back(val);
+    }
+    random_shuffle(v1.begin(), v1.end(), [](int i) { return rand() % i; });
+
+    return v1;
+}
+
+bool PartWorker::loadToBuffer(Combination& c1, chrono::high_resolution_clock::time_point start_wait_time) const {
+
+    ofstream f_out("log.txt", ios::app);
+
+    auto end_wait_time = chrono::high_resolution_clock::now();
+    chrono::duration<double, std::micro> elapsed = end_wait_time - start_wait_time;
+    chrono::duration<double, std::micro> current = end_wait_time - prog_start_time;
+    //    cout << "\nCurrent Time: "<< current.count()<< "us" << endl;
+    //    cout << "Part Worker ID: " << id << endl;
+    //    cout << "Iteration: " << iteration << endl;
+    //    if(elapsed < 3000us){
+    //        cout << "Status:" << "Wakeup-Notified" << endl;
+    //    }
+    //    else{
+    //        cout <<  "Status:" << "Wakeup-Timeout" << endl;
+    //    }
+    //    cout << "Accumulated Wait Time: " << elapsed.count() << "us" << endl;
+    //    cout << "Buffer State:";
+    //    buffer.showBufferState();
+    //    cout << "Load Order:";
+    //    c1.show();
+
+    f_out << "\nCurrent Time: " << current.count() << "us" << endl;
+    f_out << "Part Worker ID: " << id << endl;
+    f_out << "Iteration: " << iteration << endl;
+    if (elapsed < 3000us) {
+        f_out << "Status:" << "Wakeup-Notified" << endl;
+    }
+    else {
+        f_out << "Status:" << "Wakeup-Timeout" << endl;
+    }
+    f_out << "Accumulated Wait Time: " << elapsed.count() << "us" << endl;
+    f_out << "Buffer State:";
+    f_out << "(" << buffer.A << "," << buffer.B << "," << buffer.C << "," << buffer.D << ")" << endl;
+    f_out << "Load Order:";
+    f_out << "(" << c1.A << "," << c1.B << "," << c1.C << "," << c1.D << ")" << endl;
+
+    this_thread::sleep_for(chrono::microseconds(moveTime(min(c1.A, buffer.space_A()), min(c1.B, buffer.space_B()), min(c1.C, buffer.space_C()), min(c1.D, buffer.space_D()))));
+    if (buffer.space_A() < c1.A) {
+        c1.A = c1.A - buffer.space_A();
+        buffer.A = buffer.MAX_A;
+    }
+    else {
+        buffer.A += c1.A;
+        c1.A = 0;
+    }
+    if (buffer.space_B() < c1.B) {
+        c1.B = c1.B - buffer.space_B();
+        buffer.B = buffer.MAX_B;
+    }
+    else {
+        buffer.B += c1.B;
+        c1.B = 0;
+    }
+    if (buffer.space_C() < c1.C) {
+        c1.C = c1.C - buffer.space_C();
+        buffer.C = buffer.MAX_C;
+    }
+    else {
+        buffer.C += c1.C;
+        c1.C = 0;
+    }
+    if (buffer.space_D() < c1.D) {
+        c1.D = c1.D - buffer.space_D();
+        buffer.D = buffer.MAX_D;
+    }
+    else {
+        buffer.D += c1.D;
+        c1.D = 0;
+    }
+    //    cout << "Updated Buffer State:";
+    //    buffer.showBufferState();
+    //    cout << "Updated Load Order:";
+    //    c1.show();
+
+    f_out << "Updated Buffer State:";
+    f_out << "(" << buffer.A << "," << buffer.B << "," << buffer.C << "," << buffer.D << ")" << endl;
+    f_out << "Updated Load Order:";
+    f_out << "(" << c1.A << "," << c1.B << "," << c1.C << "," << c1.D << ")" << endl;
+    f_out.close();
+
+    return c1.A == 0 && c1.B == 0 && c1.C == 0 && c1.D == 0;
+
+}
+
+vector<int> ProductWorker::generate() {
+    auto seed = time(0);
+    srand(seed + id);
+    int plan = rand() % 2;
+    vector<vector<int>> vv;
+    vv.push_back({ 0,1,2,2 });
+    vv.push_back({ 0,1,1,3 });
+    random_shuffle(vv[plan].begin(), vv[plan].end(), [](int i) { return rand() % i; });
+    return vv[plan];
+}
+
+bool ProductWorker::assemblyFromBuffer(Combination& c2, chrono::high_resolution_clock::time_point start_wait_time) const {
+
+    ofstream f_out("log.txt", ios::app);
+
+    auto end_wait_time = chrono::high_resolution_clock::now();
+    chrono::duration<double, std::micro> elapsed = end_wait_time - start_wait_time;
+    chrono::duration<double, std::micro> current = end_wait_time - prog_start_time;
+    //    cout << "\nCurrent Time: "<< current.count()<< "us" << endl;
+    //    cout << "Product Worker ID:" << id << endl;
+    //    cout << "Iteration: " << iteration << endl;
+    //    if(elapsed < 6000us)
+    //        cout << "Status:" << "Wakeup-Notified" << endl;
+    //    else
+    //        cout <<  "Status:" << "Wakeup-Timeout" << endl;
+    //    cout << "Accumulated Wait Time: " << elapsed.count() << "us" << endl;
+    //    cout << "Buffer State:";
+    //    buffer.showBufferState();
+    //    cout << "Pickup Order:";
+    //    c2.show();
+
+    f_out << "\nCurrent Time: " << current.count() << "us" << endl;
+    f_out << "Product Worker ID:" << id << endl;
+    f_out << "Iteration: " << iteration << endl;
+    if (elapsed < 6000us)
+        f_out << "Status:" << "Wakeup-Notified" << endl;
+    else
+        f_out << "Status:" << "Wakeup-Timeout" << endl;
+    f_out << "Status:" << "New Pickup Order" << endl;
+    f_out << "Accumulated Wait Time: 0 us" << endl;
+    f_out << "Buffer State:";
+    f_out << "(" << buffer.A << "," << buffer.B << "," << buffer.C << "," << buffer.D << ")" << endl;
+    f_out << "Pickup Order:";
+    f_out << "(" << c2.A << "," << c2.B << "," << c2.C << "," << c2.D << ")" << endl;
+
+    this_thread::sleep_for(chrono::microseconds(moveTime(min(c2.A, buffer.A), min(c2.B, buffer.B), min(c2.C, buffer.C), min(c2.D, buffer.D))));
+    if (buffer.A >= c2.A) {
+        buffer.A -= c2.A;
+        c2.A = 0;
+    }
+    else {
+        c2.A -= buffer.A;
+        buffer.A = 0;
+    }
+    if (buffer.B >= c2.B) {
+        buffer.B -= c2.B;
+        c2.B = 0;
+    }
+    else {
+        c2.B -= buffer.B;
+        buffer.B = 0;
+    }
+    if (buffer.C >= c2.C) {
+        buffer.C -= c2.C;
+        c2.C = 0;
+    }
+    else {
+        c2.C -= buffer.C;
+        buffer.C = 0;
+    }
+    if (buffer.D >= c2.D) {
+        buffer.D -= c2.D;
+        c2.D = 0;
+    }
+    else {
+        c2.D -= buffer.D;
+        buffer.D = 0;
+    }
+    //    cout << "Updated Buffer State:";
+    //    buffer.showBufferState();
+    //    cout << "Updated Pickup Order:";
+    //    c2.show();
+    if (c2.A == 0 && c2.B == 0 && c2.C == 0 && c2.D == 0) totalCompleted++;
+    //    cout << "Total Completed Products: " << totalCompleted << endl;
+
+    f_out << "Updated Buffer State:";
+    f_out << "(" << buffer.A << "," << buffer.B << "," << buffer.C << "," << buffer.D << ")" << endl;
+    f_out << "Updated Pickup Order:";
+    f_out << "(" << c2.A << "," << c2.B << "," << c2.C << "," << c2.D << ")" << endl;
+    f_out << "Total Completed Products: " << totalCompleted << endl;
+    f_out.close();
+
+    return c2.A == 0 && c2.B == 0 && c2.C == 0 && c2.D == 0;
+}
+
+
+
+
+int main() {
+
+    const int m = 20, n = 16; //m: number of Part Workers
+//n: number of Product Workers
+//m>n
+
+    plant p;
+
+    thread partW[m];
+    thread prodW[n];
+    for (int i = 0; i < n; i++) {
+        //partW[i] = thread(p.doPartWork, i);
+        //prodW[i] = thread(p.doProductWork, i);
+        partW[i] = thread(&plant::doPartWork, ref(p), i);
+        prodW[i] = thread(&plant::doProductWork, ref(p), i);
+    }
+    for (int i = n; i < m; i++) {
+        partW[i] = thread(&plant::doPartWork, ref(p), i);
+        //partW[i] = thread(p.doPartWork, i);
+    }
+    /* Join the threads to the main threads */
+    for (int i = 0; i < n; i++) {
+        partW[i].join();
+        prodW[i].join();
+    }
+    for (int i = n; i < m; i++) {
+        partW[i].join();
+    }
+    cout << "Finish!" << endl;
+    cout << "totalCompleted number: " << totalCompleted << endl;
+    return 0;
+}
