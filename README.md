@@ -3,11 +3,15 @@
 
 包括一些常用算法:
 - BFS/DFS 
-- BinarySearchTree AVL树 红黑树  
-- 手写minHeap实现的Dijkstr/Prim  
+- BinarySearchTree/ AVL树/ 红黑树  
+- 手写minHeap实现的Dijkstr/ Prim  
 - 快排、归并排序及其多线程实现
+
 以及网络编程练习代码:
-- select\ poll \epoll
-- IPC: pipe \ FIFO
+- select/ poll/ epoll
+- IPC: pipe/ FIFO
+
+以及Leetcode上的一些算法题:
+- 剑指offer系列
 
 To be continued
